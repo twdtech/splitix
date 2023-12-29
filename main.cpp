@@ -329,7 +329,7 @@ int main() {
 
             fileSizeBytes = convertSizeToBytes(fileSize, unit);
             if (fileSizeBytes == -1) {
-                cout << "Ungültige Einheit. Bitte wählen Sie kB, MB oder GB." << endl;
+                cout << "Invalid unit. Please select kB, MB or GB." << endl;
             }
         }
         std::cout << "\n";
