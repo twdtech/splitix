@@ -11,6 +11,8 @@
 #include <conio.h>
 #include <commdlg.h>
 #include <shlobj.h>
+#include <map>
+
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -86,7 +88,7 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
     // Loop through each part and create an output file for it
     for (int i = 0; i < numParts; ++i) {
         // Generate the output file name
-        string outputFileName = outputFolderPath + "/" + filename.substr(filename.find_last_of("\\/") + 1) + "_part" + to_string(i + 1);
+        string outputFileName = outputFolderPath + "/" + filename.substr(filename.find_last_of("\\/") + 1) + "_split" + to_string(i + 1);
         ofstream outputFile(outputFileName, ios::binary);
 
         // Check if the output file can be created
@@ -94,6 +96,9 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
             cerr << "Could not create the output file." << endl;
             return;
         }
+
+        // Write the part number at the beginning of the file
+        outputFile << "Part: " << i + 1 << endl;
 
         // Initialize the remaining size to be written and create a buffer for reading/writing
         long long remainingSize = min(fileSizeBytes, static_cast<long long>(fileSize) - (i * fileSizeBytes));
@@ -125,70 +130,41 @@ static void mergeFiles(const std::string& folderPath, const std::string& outputF
         return;
     }
 
-    WIN32_FIND_DATAA findFileData;
-    HANDLE hFind = FindFirstFileA((folderPath + "\\*").c_str(), &findFileData);
+    // Create a map to store the file parts and their corresponding ifstream objects
+    std::map<int, std::ifstream> fileParts;
 
-    if (hFind == INVALID_HANDLE_VALUE) {
-        std::cerr << "Error while searching for files in folder!" << std::endl;
-        return;
+    // Open each file part and read the part number from the beginning of the file
+    for (const auto& entry : std::filesystem::directory_iterator(folderPath)) {
+        std::ifstream inputFile(entry.path(), std::ios::binary);
+        if (!inputFile.is_open()) {
+            std::cerr << "Unable to open input file: " << entry.path() << std::endl;
+            return;
+        }
+
+        // Read the part number from the beginning of the file
+        std::string partInfo;
+        std::getline(inputFile, partInfo);
+        int partNumber = std::stoi(partInfo.substr(6));  // Skip the "Part: " prefix
+
+        // Store the ifstream object in the map with the part number as the key
+        fileParts[partNumber] = std::move(inputFile);
     }
 
-    long long totalSize = 0;
-
-    // Calculate the total size of the files in the folder
-    do {
-        if (!(findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            totalSize += findFileData.nFileSizeLow;
-            totalSize += findFileData.nFileSizeHigh * (MAXDWORD + 1LL);
-        }
-    } while (FindNextFileA(hFind, &findFileData) != 0);
-
-    FindClose(hFind);
-
-    // Reset and run through again to copy the files
-    hFind = FindFirstFileA((folderPath + "\\*").c_str(), &findFileData);
-
-    if (hFind == INVALID_HANDLE_VALUE) {
-        std::cerr << "Error while searching for files in folder!" << std::endl;
-        return;
+    // Merge the file parts in order
+    for (auto& [partNumber, inputFile] : fileParts) {
+        // Copy the remaining content of the file part to the output file
+        outputFile << inputFile.rdbuf();
+        inputFile.close();
     }
 
-    long long copiedSize = 0;
-    std::cout << "\n";
-
-    do {
-        if (!(findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            std::ifstream inputFile((folderPath + "\\" + findFileData.cFileName).c_str(), std::ios::binary);
-
-            if (!inputFile.is_open()) {
-                std::cerr << "Unable to open inputfile: " << findFileData.cFileName << std::endl;
-                FindClose(hFind);
-                return;
-            }
-
-            // Copy file content to the output file
-            outputFile << inputFile.rdbuf();
-
-            // Update progress bar
-            copiedSize += findFileData.nFileSizeLow;
-            copiedSize += findFileData.nFileSizeHigh * (MAXDWORD + 1LL);
-            int progress = static_cast<int>((static_cast<double>(copiedSize) / totalSize) * 100);
-            std::cout << "Progress " << progress << "%\r" << std::flush;
-
-            inputFile.close();
-        }
-    } while (FindNextFileA(hFind, &findFileData) != 0);
-
-    FindClose(hFind);
     outputFile.close();
-
     std::cout << "Files successfully merged: " << outputFilename << std::endl;
 }
 
 // Main function
 int main() {
     HWND consoleWindow = GetConsoleWindow();
-    SetWindowText(consoleWindow, L"Splitix V1.0 @ github.com/twdtech");
+    SetWindowText(consoleWindow, L"Splitix V1.0.1 @ github.com/twdtech");
     // Seed for random number generation
     srand(static_cast<unsigned>(time(nullptr)));
 
@@ -199,7 +175,7 @@ int main() {
     // Display program information
     setColor(FOREGROUND_GREEN);
     cout << "\nSplitix\n";
-    cout << "Version: 1.0\n";
+    cout << "Version: 1.0.1\n";
     cout << "Made by github.com/twdtech\n\n";
 
     setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
@@ -310,7 +286,7 @@ int main() {
                 }
 
                 int key = _getch();
-                if (key == 224) { 
+                if (key == 224) {
                     switch (_getch()) {
                     case 72:
                         if (unitChoice > 0) --unitChoice;
@@ -402,7 +378,7 @@ int main() {
         // Exit option
         cout << "Exiting Splitix..." << endl;
         return 0;
-}
+    }
     else {
         // Invalid option
         setColor(FOREGROUND_RED);
