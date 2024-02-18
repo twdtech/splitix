@@ -12,7 +12,7 @@
 #include <commdlg.h>
 #include <shlobj.h>
 #include <map>
-
+#include <comdef.h>
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -68,43 +68,61 @@ static long long convertSizeToBytes(int size, const string& unit) {
 static void splitFile(const string& filename, long long fileSizeBytes) {
     ifstream inputFile(filename, ios::binary | ios::ate);
 
-    // Check if the input file can be opened
     if (!inputFile.is_open()) {
         cerr << "Could not open the file." << endl;
         return;
     }
 
-    // Get the size of the input file and set the file position to the beginning
     streampos fileSize = inputFile.tellg();
     inputFile.seekg(0, ios::beg);
 
-    // Create a folder for the output files with a random name
-    string outputFolderPath = "FileSplit-" + generateRandomString();
+    string outputFolderPath;
+    while (outputFolderPath.empty()) {
+        BROWSEINFO bi = { 0 };
+        bi.lpszTitle = L"Select folder with splits:";
+        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+        bi.lpfn = NULL;
+        bi.lParam = 0;
+        bi.iImage = 0;
+
+        LPITEMIDLIST pidl = SHBrowseForFolder(&bi);
+        if (pidl != 0) {
+            WCHAR path[MAX_PATH];
+            if (SHGetPathFromIDList(pidl, path)) {
+                _bstr_t bstrPath(path);
+                outputFolderPath = (char*)bstrPath;
+            }
+
+            IMalloc* imalloc = 0;
+            if (SUCCEEDED(SHGetMalloc(&imalloc))) {
+                imalloc->Free(pidl);
+                imalloc->Release();
+            }
+        }
+        if (outputFolderPath.empty()) {
+            cerr << "No folder selected. Please select a folder." << endl;
+        }
+    }
+
+    outputFolderPath += "/FileSplit-" + generateRandomString();
     fs::create_directory(outputFolderPath);
 
-    // Calculate the number of parts the file will be split into
     int numParts = static_cast<int>(ceil(static_cast<double>(fileSize) / fileSizeBytes));
 
-    // Loop through each part and create an output file for it
     for (int i = 0; i < numParts; ++i) {
-        // Generate the output file name
         string outputFileName = outputFolderPath + "/" + filename.substr(filename.find_last_of("\\/") + 1) + "_split" + to_string(i + 1);
         ofstream outputFile(outputFileName, ios::binary);
 
-        // Check if the output file can be created
         if (!outputFile.is_open()) {
             cerr << "Could not create the output file." << endl;
             return;
         }
 
-        // Write the part number at the beginning of the file
         outputFile << "Part: " << i + 1 << endl;
 
-        // Initialize the remaining size to be written and create a buffer for reading/writing
         long long remainingSize = min(fileSizeBytes, static_cast<long long>(fileSize) - (i * fileSizeBytes));
         vector<char> buffer(4096);
 
-        // Read from the input file and write to the output file until the remaining size is zero
         while (remainingSize > 0) {
             int bytesRead = min(remainingSize, static_cast<long long>(buffer.size()));
             inputFile.read(buffer.data(), bytesRead);
@@ -112,28 +130,52 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
             remainingSize -= bytesRead;
         }
 
-        // Close the output file and print a message
         outputFile.close();
         cout << "Part " << i + 1 << " created: " << outputFileName << endl;
     }
 
-    // Close the input file
     inputFile.close();
 }
 
 // Function to merge splits back together
 static void mergeFiles(const std::string& folderPath, const std::string& outputFilename) {
-    std::ofstream outputFile(outputFilename, std::ios::binary);
+    string outputFolderPath;
+    while (outputFolderPath.empty()) {
+        BROWSEINFO bi = { 0 };
+        bi.lpszTitle = L"Select folder for the merged file:";
+        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+        bi.lpfn = NULL;
+        bi.lParam = 0;
+        bi.iImage = 0;
+
+        LPITEMIDLIST pidl = SHBrowseForFolder(&bi);
+        if (pidl != 0) {
+            WCHAR path[MAX_PATH];
+            if (SHGetPathFromIDList(pidl, path)) {
+                _bstr_t bstrPath(path);
+                outputFolderPath = (char*)bstrPath;
+            }
+
+            IMalloc* imalloc = 0;
+            if (SUCCEEDED(SHGetMalloc(&imalloc))) {
+                imalloc->Free(pidl);
+                imalloc->Release();
+            }
+        }
+        if (outputFolderPath.empty()) {
+            cerr << "No folder selected. Please select a folder." << endl;
+        }
+    }
+
+    std::ofstream outputFile(outputFolderPath + "/" + outputFilename, std::ios::binary);
 
     if (!outputFile.is_open()) {
         std::cerr << "Unable to create output file!" << std::endl;
         return;
     }
 
-    // Create a map to store the file parts and their corresponding ifstream objects
     std::map<int, std::ifstream> fileParts;
 
-    // Open each file part and read the part number from the beginning of the file
     for (const auto& entry : std::filesystem::directory_iterator(folderPath)) {
         std::ifstream inputFile(entry.path(), std::ios::binary);
         if (!inputFile.is_open()) {
@@ -141,30 +183,26 @@ static void mergeFiles(const std::string& folderPath, const std::string& outputF
             return;
         }
 
-        // Read the part number from the beginning of the file
         std::string partInfo;
         std::getline(inputFile, partInfo);
-        int partNumber = std::stoi(partInfo.substr(6));  // Skip the "Part: " prefix
+        int partNumber = std::stoi(partInfo.substr(6));
 
-        // Store the ifstream object in the map with the part number as the key
         fileParts[partNumber] = std::move(inputFile);
     }
 
-    // Merge the file parts in order
     for (auto& [partNumber, inputFile] : fileParts) {
-        // Copy the remaining content of the file part to the output file
         outputFile << inputFile.rdbuf();
         inputFile.close();
     }
 
     outputFile.close();
-    std::cout << "Files successfully merged: " << outputFilename << std::endl;
+    std::cout << "Files successfully merged: " << outputFolderPath + "/" + outputFilename << std::endl;
 }
 
 // Main function
 int main() {
     HWND consoleWindow = GetConsoleWindow();
-    SetWindowText(consoleWindow, L"Splitix V1.0.1 @ github.com/twdtech");
+    SetWindowText(consoleWindow, L"Splitix V1.0.2 @ github.com/twdtech");
     // Seed for random number generation
     srand(static_cast<unsigned>(time(nullptr)));
 
@@ -175,7 +213,7 @@ int main() {
     // Display program information
     setColor(FOREGROUND_GREEN);
     cout << "\nSplitix\n";
-    cout << "Version: 1.0.1\n";
+    cout << "Version: 1.0.2\n";
     cout << "Made by github.com/twdtech\n\n";
 
     setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
@@ -227,7 +265,7 @@ int main() {
     }
 
     if (choice == 0) {
-        // Splittingo ption
+        // Splitting option
         string filename;
         int fileSize;
         string unit;
@@ -257,10 +295,10 @@ int main() {
         setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
         cout << "\nChosen file: " << filename << endl;
 
-        cout << "Size of each sub-file: ";
+        cout << "\nSize of each sub-file: ";
         cin >> fileSize;
 
-        cout << "Unit: \n";
+        cout << "\nUnit: \n";
 
         // Save the cursor position before displaying the unit options
         COORD unitPos = getCursorPos();
