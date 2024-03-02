@@ -143,7 +143,7 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
             return;
         }
 
-        outputFile << "   Part: " << i + 1 << endl;
+        outputFile << "Part: " << i + 1 << endl;
 
         vector<char> buffer(4096);
 
@@ -276,6 +276,7 @@ static void mergeFiles(const std::string& folderPath, const std::string& outputF
 // Main function
 int main() {
     HWND consoleWindow = GetConsoleWindow();
+    system("mode con: cols=100 lines=33");
     SetWindowText(consoleWindow, L"Splitix V1.2 @ github.com/twdtech");
     // Seed for random number generation
     srand(static_cast<unsigned>(time(nullptr)));
