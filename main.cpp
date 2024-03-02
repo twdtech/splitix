@@ -91,7 +91,7 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
     streampos fileSize = inputFile.tellg();
     inputFile.seekg(0, ios::beg);
 
-    // Fortschrittsleiste anzeigen, wenn die Dateigröße größer als 1024MB ist
+    // Progressbar if filesize bitter than 1024MB
     bool showProgressBar = fileSize > 1024 * 1024 * 1024;
 
     string outputFolderPath;
