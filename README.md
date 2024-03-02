@@ -7,4 +7,4 @@ Arrow keys are used to move trough the menu.
 
 **Important: the file extension ___NEEDS___ the `part_#` as split information! Everything in front of this part is customisable!**
 
-![Splitix Image](https://github.com/twdtech/twdtech/blob/main/imgs/Splitix.png)
+![Splitix Image](https://github.com/twdtech/twdtech/blob/main/imgs/SplitixV12.png)
