@@ -13,6 +13,7 @@
 #include <shlobj.h>
 #include <map>
 #include <comdef.h>
+#include <iomanip>
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -40,7 +41,6 @@ static void setCursorPos(COORD pos) {
     SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
 }
 
-// Get current cursor position
 static COORD getCursorPos() {
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
@@ -64,17 +64,35 @@ static long long convertSizeToBytes(int size, const string& unit) {
     }
 }
 
+static void printProgress(double percentage) {
+    const int progressBarWidth = 70;
+    setColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
+    cout << "   [";
+    int pos = progressBarWidth * percentage;
+    for (int i = 0; i < progressBarWidth; ++i) {
+        if (i < pos) cout << "=";
+        else if (i == pos) cout << ">";
+        else cout << " ";
+    }
+    cout << "] " << int(percentage * 100.0) << "%  \r";
+    setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+    cout.flush();
+}
+
 // Function to split a file into parts
 static void splitFile(const string& filename, long long fileSizeBytes) {
     ifstream inputFile(filename, ios::binary | ios::ate);
 
     if (!inputFile.is_open()) {
-        cerr << "Could not open the file." << endl;
+        cerr << "   Could not open the file." << endl;
         return;
     }
 
     streampos fileSize = inputFile.tellg();
     inputFile.seekg(0, ios::beg);
+
+    // Fortschrittsleiste anzeigen, wenn die Dateigröße größer als 1024MB ist
+    bool showProgressBar = fileSize > 1024 * 1024 * 1024;
 
     string outputFolderPath;
     while (outputFolderPath.empty()) {
@@ -100,7 +118,7 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
             }
         }
         if (outputFolderPath.empty()) {
-            cerr << "No folder selected. Please select a folder." << endl;
+            cerr << "   No folder selected. Please select a folder." << endl;
         }
     }
 
@@ -109,18 +127,24 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
 
     int numParts = static_cast<int>(ceil(static_cast<double>(fileSize) / fileSizeBytes));
 
+    double lastTotalProgress = 0.0;
+    double lastSplitProgress = 0.0;
+    COORD initialPos = getCursorPos();
+    long long totalSize = static_cast<long long>(fileSize);
+    long long processedSize = 0;
     for (int i = 0; i < numParts; ++i) {
         string outputFileName = outputFolderPath + "/" + filename.substr(filename.find_last_of("\\/") + 1) + "_split" + to_string(i + 1);
         ofstream outputFile(outputFileName, ios::binary);
+        long long splitSize = min(fileSizeBytes, totalSize);
+        long long remainingSize = splitSize;
 
         if (!outputFile.is_open()) {
-            cerr << "Could not create the output file." << endl;
+            cerr << "   Could not create the output file." << endl;
             return;
         }
 
-        outputFile << "Part: " << i + 1 << endl;
+        outputFile << "   Part: " << i + 1 << endl;
 
-        long long remainingSize = min(fileSizeBytes, static_cast<long long>(fileSize) - (i * fileSizeBytes));
         vector<char> buffer(4096);
 
         while (remainingSize > 0) {
@@ -128,10 +152,60 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
             inputFile.read(buffer.data(), bytesRead);
             outputFile.write(buffer.data(), bytesRead);
             remainingSize -= bytesRead;
+            totalSize -= bytesRead;
+            processedSize += bytesRead;
+
+            if (showProgressBar) {
+                double totalProgress = (double)processedSize / fileSize;
+                double splitProgress = (double)(splitSize - remainingSize) / splitSize;
+                if (totalProgress - lastTotalProgress >= 0.01 || splitProgress - lastSplitProgress >= 0.01) {
+                    setCursorPos(initialPos);
+                    setColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
+                    cout << "   Split: ";
+                    setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                    printProgress(splitProgress);
+                    cout << "\n";
+                    setColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
+                    cout << "   Total: ";
+                    setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                    printProgress(totalProgress);
+                    cout << "\n\n";
+                    lastTotalProgress = totalProgress;
+                    lastSplitProgress = splitProgress;
+                }
+            }
+        }
+
+        if (showProgressBar) {
+            setCursorPos(initialPos);
+            setColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
+            cout << "   Split: ";
+            setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+            printProgress(1.0);
+            cout << "\n";
+            setColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
+            cout << "   Total: ";
+            setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+            printProgress((double)processedSize / fileSize);
+            cout << "\n\n";
         }
 
         outputFile.close();
-        cout << "Part " << i + 1 << " created: " << outputFileName << endl;
+        std::cout << "   Part " << i + 1 << " created: " << outputFileName << endl;
+    }
+
+    if (showProgressBar) {
+        setCursorPos(initialPos);
+        setColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
+        cout << "   Split: ";
+        setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+        printProgress(1.0); 
+        cout << "\n";
+        setColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
+        cout << "   Total: ";
+        setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+        printProgress(1.0);
+        cout << "\n\n";
     }
 
     inputFile.close();
@@ -202,7 +276,7 @@ static void mergeFiles(const std::string& folderPath, const std::string& outputF
 // Main function
 int main() {
     HWND consoleWindow = GetConsoleWindow();
-    SetWindowText(consoleWindow, L"Splitix V1.0.2 @ github.com/twdtech");
+    SetWindowText(consoleWindow, L"Splitix V1.2 @ github.com/twdtech");
     // Seed for random number generation
     srand(static_cast<unsigned>(time(nullptr)));
 
@@ -212,12 +286,24 @@ int main() {
 
     // Display program information
     setColor(FOREGROUND_GREEN);
-    cout << "\nSplitix\n";
-    cout << "Version: 1.0.2\n";
-    cout << "Made by github.com/twdtech\n\n";
+    std::string prgrm_nme = R"(
+   _____/\\\\\\\\\\\__________________/\\\\\\____________________________________________________
+   ____/\\\/////////\\\_______________\////\\\___________________________________________________
+   ____\//\\\______\///____/\\\\\\\\\_____\/\\\_____/\\\_____/\\\_______/\\\_____________________
+   ______\////\\\__________/\\\/////\\\____\/\\\____\///___/\\\\\\\\\\\_\///___/\\\____/\\\______
+   __________\////\\\______\/\\\\\\\\\\_____\/\\\_____/\\\_\////\\\////___/\\\_\///\\\/\\\/______
+   ______________\////\\\___\/\\\//////______\/\\\____\/\\\____\/\\\______\/\\\___\///\\\/_______
+   ________/\\\______\//\\\__\/\\\____________\/\\\____\/\\\____\/\\\_/\\__\/\\\____/\\\/\\\_____
+   ________\///\\\\\\\\\\\/___\/\\\__________/\\\\\\\\\_\/\\\____\//\\\\\___\/\\\__/\\\/\///\\\__
+   ___________\///////////_____\///__________\/////////__\///______\/////____\///__\///____\///__
+    )";
+    std::cout << prgrm_nme;
+    // cout << "\nSplitix\n";
+    cout << "\n   Version: 1.2\n";
+    cout << "   Made by github.com/twdtech\n\n";
 
     setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-    cout << "Choose Option:" << endl;
+    cout << "   Choose Option:" << endl;
 
     // Save the cursor position before displaying the menu options
     COORD menuPos = getCursorPos();
@@ -229,20 +315,20 @@ int main() {
 
         for (int i = 0; i < numOptions; ++i) {
             if (i == choice) {
-                cout << arrow << " ";
+                cout << "   " << arrow << " ";
             }
             else {
-                cout << "  ";
+                cout << "     ";
             }
             switch (i) {
             case 0:
-                cout << "1. Split" << endl;
+                cout << "1. Split " << endl;
                 break;
             case 1:
-                cout << "2. Combine" << endl;
+                cout << "2. Combine " << endl;
                 break;
             case 2:
-                cout << "3. Exit" << endl;
+                cout << "3. Exit " << endl;
                 break;
             }
         }
@@ -293,12 +379,12 @@ int main() {
         }
 
         setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        cout << "\nChosen file: " << filename << endl;
+        cout << "\n   Chosen file: " << filename << endl;
 
-        cout << "\nSize of each sub-file: ";
+        cout << "\n   Size of each sub-file: ";
         cin >> fileSize;
 
-        cout << "\nUnit: \n";
+        cout << "\n   Unit: \n";
 
         // Save the cursor position before displaying the unit options
         COORD unitPos = getCursorPos();
@@ -315,10 +401,10 @@ int main() {
 
                 for (int i = 0; i < 3; ++i) {
                     if (i == unitChoice) {
-                        cout << arrow << " ";
+                        cout << "   " << arrow << " ";
                     }
                     else {
-                        cout << "  ";
+                        cout << "     ";
                     }
                     cout << units[i] << endl;
                 }
@@ -343,7 +429,7 @@ int main() {
 
             fileSizeBytes = convertSizeToBytes(fileSize, unit);
             if (fileSizeBytes == -1) {
-                cout << "Invalid unit. Please select kB, MB or GB." << endl;
+                cout << "   Invalid unit. Please select kB, MB or GB." << endl;
             }
         }
         std::cout << "\n";
@@ -351,7 +437,7 @@ int main() {
         // Call splitFile function
         splitFile(filename, fileSizeBytes);
 
-        cout << "\nPress Enter to exit...";
+        cout << "\n\n   Press Enter to exit...";
         while (true) {
             if (_kbhit()) {
                 char ch = _getch();
@@ -404,9 +490,9 @@ int main() {
         // Reset the working directory to the original directory
         SetCurrentDirectory(currentDirectory);
 
-        cout << "\nChosen folder: " << folderPath << endl;
+        cout << "\n   Chosen folder: " << folderPath << endl;
 
-        cout << "Name of combined file: ";
+        cout << "   Name of combined file: ";
         getline(cin, outputFilename);
 
         // Call mergeFiles function
@@ -414,18 +500,18 @@ int main() {
     }
     else if (choice == 2) {
         // Exit option
-        cout << "Exiting Splitix..." << endl;
+        cout << "   Exiting Splitix..." << endl;
         return 0;
     }
     else {
         // Invalid option
         setColor(FOREGROUND_RED);
-        cout << "\nInvalid option!" << endl;
+        cout << "\n   Invalid option!" << endl;
     }
 
     // Prompt user to exit
     setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-    cout << "\nPress Enter to exit...";
+    cout << "\n\n   Press Enter to exit...";
     cin.ignore();
 
     return 0;
