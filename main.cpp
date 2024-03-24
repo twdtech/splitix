@@ -79,19 +79,51 @@ static void printProgress(double percentage) {
     cout.flush();
 }
 
+static string caesarEncrypt(string text, int s) {
+    string result = "";
+
+    for (int i = 0; i < text.length(); i++) {
+        if (isupper(text[i]))
+            result += char(int(text[i] + s - 65) % 26 + 65);
+        else if (islower(text[i]))
+            result += char(int(text[i] + s - 97) % 26 + 97);
+        else
+            result += text[i];
+    }
+
+    return result;
+}
+
+static string caesarDecrypt(string text, int s) {
+    string result = "";
+
+    for (int i = 0; i < text.length(); i++) {
+        if (isupper(text[i]))
+            result += char(int(text[i] - s - 65 + 26) % 26 + 65);
+        else if (islower(text[i]))
+            result += char(int(text[i] - s - 97 + 26) % 26 + 97);
+        else
+            result += text[i];
+    }
+
+    return result;
+}
+
 // Function to split a file into parts
 static void splitFile(const string& filename, long long fileSizeBytes) {
     ifstream inputFile(filename, ios::binary | ios::ate);
 
     if (!inputFile.is_open()) {
+        setColor(FOREGROUND_RED);
         cerr << "   Could not open the file." << endl;
+        setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
         return;
     }
 
     streampos fileSize = inputFile.tellg();
     inputFile.seekg(0, ios::beg);
 
-    // Progressbar if filesize bitter than 1024MB
+    // Progressbar if filesize bigger than 1024MB
     bool showProgressBar = fileSize > 1024 * 1024 * 1024;
 
     string outputFolderPath;
@@ -118,7 +150,9 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
             }
         }
         if (outputFolderPath.empty()) {
+            setColor(FOREGROUND_RED);
             cerr << "   No folder selected. Please select a folder." << endl;
+            setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
         }
     }
 
@@ -139,11 +173,15 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
         long long remainingSize = splitSize;
 
         if (!outputFile.is_open()) {
+            setColor(FOREGROUND_RED);
             cerr << "   Could not create the output file." << endl;
+            setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
             return;
         }
 
-        outputFile << "Part: " << i + 1 << endl;
+        string partInfo = "Part: " + to_string(i + 1);
+        string encryptedPartInfo = caesarEncrypt(partInfo, 3);  // Verschlüsseln Sie die Informationen
+        outputFile << encryptedPartInfo << endl;
 
         vector<char> buffer(4096);
 
@@ -191,7 +229,9 @@ static void splitFile(const string& filename, long long fileSizeBytes) {
         }
 
         outputFile.close();
-        std::cout << "   Part " << i + 1 << " created: " << outputFileName << endl;
+        setColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
+        std::cout << "\r   Part " << i + 1 << " created: " << outputFileName;
+        setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
     }
 
     if (showProgressBar) {
@@ -237,47 +277,56 @@ static void mergeFiles(const std::string& folderPath, const std::string& outputF
             }
         }
         if (outputFolderPath.empty()) {
-            cerr << "No folder selected. Please select a folder." << endl;
+            cerr << "   No folder selected. Please select a folder." << endl;
         }
     }
 
     std::ofstream outputFile(outputFolderPath + "/" + outputFilename, std::ios::binary);
 
     if (!outputFile.is_open()) {
-        std::cerr << "Unable to create output file!" << std::endl;
+        std::cerr << "   Unable to create output file!" << std::endl;
         return;
     }
 
     std::map<int, std::ifstream> fileParts;
 
+    cout << "\n";
+    printProgress(0.0);
+
     for (const auto& entry : std::filesystem::directory_iterator(folderPath)) {
         std::ifstream inputFile(entry.path(), std::ios::binary);
         if (!inputFile.is_open()) {
-            std::cerr << "Unable to open input file: " << entry.path() << std::endl;
+            std::cerr << "   Unable to open input file: " << entry.path() << std::endl;
             return;
         }
 
-        std::string partInfo;
-        std::getline(inputFile, partInfo);
-        int partNumber = std::stoi(partInfo.substr(6));
+        std::string encryptedPartInfo;
+        std::getline(inputFile, encryptedPartInfo);
+        string decryptedPartInfo = caesarDecrypt(encryptedPartInfo, 3);  // Entschlüsseln Sie die Informationen
+        int partNumber = std::stoi(decryptedPartInfo.substr(6));
 
         fileParts[partNumber] = std::move(inputFile);
     }
 
+    size_t totalParts = fileParts.size();
+    size_t currentPart = 0;
+
     for (auto& [partNumber, inputFile] : fileParts) {
         outputFile << inputFile.rdbuf();
         inputFile.close();
+
+        // Update progress bar
+        printProgress(static_cast<double>(++currentPart) / totalParts);
     }
 
     outputFile.close();
-    std::cout << "Files successfully merged: " << outputFolderPath + "/" + outputFilename << std::endl;
+    std::cout << "\n\n   Files successfully merged: " << outputFolderPath + "/" + outputFilename << std::endl;
 }
 
 // Main function
 int main() {
     HWND consoleWindow = GetConsoleWindow();
-    system("mode con: cols=100 lines=33");
-    SetWindowText(consoleWindow, L"Splitix V1.2 @ github.com/twdtech");
+    SetWindowText(consoleWindow, L"Splitix V1.2.1 @ github.com/twdtech");
     // Seed for random number generation
     srand(static_cast<unsigned>(time(nullptr)));
 
@@ -300,7 +349,7 @@ int main() {
     )";
     std::cout << prgrm_nme;
     // cout << "\nSplitix\n";
-    cout << "\n   Version: 1.2\n";
+    cout << "\n   Version: 1.2.1\n";
     cout << "   Made by github.com/twdtech\n\n";
 
     setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
@@ -373,10 +422,15 @@ int main() {
         ofn.lpstrInitialDir = NULL;
         ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
-        if (GetOpenFileName(&ofn) == TRUE) {
-            char narrow[260];
-            WideCharToMultiByte(CP_ACP, 0, ofn.lpstrFile, -1, narrow, sizeof(narrow), NULL, NULL);
-            filename = narrow;
+        while (filename.empty()) {
+            if (GetOpenFileName(&ofn) == TRUE) {
+                char narrow[260];
+                WideCharToMultiByte(CP_ACP, 0, ofn.lpstrFile, -1, narrow, sizeof(narrow), NULL, NULL);
+                filename = narrow;
+            }
+            else {
+                cout << "Please choose a file!" << endl;
+            }
         }
 
         setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
@@ -430,7 +484,9 @@ int main() {
 
             fileSizeBytes = convertSizeToBytes(fileSize, unit);
             if (fileSizeBytes == -1) {
+                setColor(FOREGROUND_RED);
                 cout << "   Invalid unit. Please select kB, MB or GB." << endl;
+                setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
             }
         }
         std::cout << "\n";
@@ -470,21 +526,26 @@ int main() {
         // Set the working directory to the current directory
         SetCurrentDirectory(currentDirectory);
 
-        LPITEMIDLIST pidl = SHBrowseForFolder(&bi);
-        if (pidl != 0) {
-            // Read folder path
-            WCHAR path[MAX_PATH];
-            if (SHGetPathFromIDList(pidl, path)) {
-                char narrow[260];
-                WideCharToMultiByte(CP_ACP, 0, path, -1, narrow, sizeof(narrow), NULL, NULL);
-                folderPath = narrow;
-            }
+        while (folderPath.empty()) {
+            LPITEMIDLIST pidl = SHBrowseForFolder(&bi);
+            if (pidl != 0) {
+                // Read folder path
+                WCHAR path[MAX_PATH];
+                if (SHGetPathFromIDList(pidl, path)) {
+                    char narrow[260];
+                    WideCharToMultiByte(CP_ACP, 0, path, -1, narrow, sizeof(narrow), NULL, NULL);
+                    folderPath = narrow;
+                }
+                else {
+                    cout << "Please choose a folder!" << endl;
+                }
 
-            // Release memory
-            IMalloc* imalloc = 0;
-            if (SUCCEEDED(SHGetMalloc(&imalloc))) {
-                imalloc->Free(pidl);
-                imalloc->Release();
+                // Release memory
+                IMalloc* imalloc = 0;
+                if (SUCCEEDED(SHGetMalloc(&imalloc))) {
+                    imalloc->Free(pidl);
+                    imalloc->Release();
+                }
             }
         }
 
@@ -493,8 +554,22 @@ int main() {
 
         cout << "\n   Chosen folder: " << folderPath << endl;
 
-        cout << "   Name of combined file: ";
+        cout << "   Name of combined file (leave empty to use the name of the first split): ";
         getline(cin, outputFilename);
+
+        if (outputFilename.empty()) {
+            // Get the name of the first split file
+            for (const auto& entry : fs::directory_iterator(folderPath)) {
+                outputFilename = entry.path().filename().string();
+                size_t pos = outputFilename.find("_split");
+                if (pos != string::npos) {
+                    outputFilename = outputFilename.substr(0, pos);
+                    break;
+                }
+            }
+        }
+
+        cout << "   Combined file will be named: " << outputFilename << endl;
 
         // Call mergeFiles function
         mergeFiles(folderPath, outputFilename);
@@ -508,6 +583,7 @@ int main() {
         // Invalid option
         setColor(FOREGROUND_RED);
         cout << "\n   Invalid option!" << endl;
+        setColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
     }
 
     // Prompt user to exit
